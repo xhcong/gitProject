@@ -3,9 +3,10 @@
 #include "logging/logger.h"
 #include "network/udp_interface.h"
 #include "network/protocol.h"
+#include "database/db_queries.h"
 #include <QThread>
-#include <QDateTime>
 #include <QJsonObject>
+#include <QJsonArray>
 
 MetaManage& MetaManage::instance()
 {
@@ -13,7 +14,8 @@ MetaManage& MetaManage::instance()
     return s_instance;
 }
 
-MetaManage::MetaManage(QObject* parent) : QObject(parent), m_udpInterface(nullptr), m_sendThread(nullptr)
+MetaManage::MetaManage(QObject* parent)
+    : QObject(parent), m_udpInterface(nullptr), m_sendThread(nullptr)
 {
 }
 
@@ -27,72 +29,58 @@ bool MetaManage::initialize()
     Logger::instance().info("Initializing MetaManage with UDP support");
 
     try {
-        // Get configuration
         const auto& config = GlobalData::instance().getConfig();
-
-        // Store port numbers for later use in signal handlers
         m_necPort = config.network.nenet_nec_port;
         m_interfacePort = config.network.interface_port;
 
-        // Initialize UDP interface
+        rebuildMetaRouteCache();
+
         m_udpInterface = &UDPInterface::instance();
         if (!m_udpInterface->initialize()) {
             Logger::instance().error("Failed to initialize UDP interface");
             return false;
         }
 
-        // Bind NEC communication port
-        Logger::instance().info(QString("Binding NEC UDP port %1 on %2")
-                               .arg(m_necPort).arg(config.network.nenet_ip));
         if (!m_udpInterface->bindToPort(config.network.nenet_ip, m_necPort)) {
             Logger::instance().error(QString("Failed to bind NEC port %1").arg(m_necPort));
             return false;
         }
 
-        // Bind interface port
-        Logger::instance().info(QString("Binding interface UDP port %1 on %2")
-                               .arg(m_interfacePort).arg(config.network.nenet_ex_ip));
         if (!m_udpInterface->bindToPort(config.network.nenet_ex_ip, m_interfacePort)) {
             Logger::instance().error(QString("Failed to bind interface port %1").arg(m_interfacePort));
             return false;
         }
 
-        // Connect UDP dataReceivedOnPort signal with custom lambda to route to correct handler
-        qDebug() << "Connecting dataReceivedOnPort signal...";
-        bool connected = connect(m_udpInterface, QOverload<quint16, const QHostAddress&, quint16, const QByteArray&>::of(&UDPInterface::dataReceivedOnPort),
-                this, [this](quint16 localPort, const QHostAddress& senderAddress, quint16 senderPort, const QByteArray& data) {
-                    qDebug() << "MetaManage lambda: Received on port" << localPort << "from" << senderAddress.toString() << ":" << senderPort;
-                    if (localPort == m_necPort) {
-                        qDebug() << "Routing to onNECDataReceived";
-                        onNECDataReceived(senderAddress, senderPort, data);
-                    } else if (localPort == m_interfacePort) {
-                        qDebug() << "Routing to onInterfaceDataReceived";
-                        onInterfaceDataReceived(senderAddress, senderPort, data);
-                    }
-                }, Qt::DirectConnection);  // ← 改为DirectConnection
-
-        qDebug() << "dataReceivedOnPort connection result:" << (connected ? "SUCCESS" : "FAILED");
+        const bool connected = connect(
+            m_udpInterface,
+            QOverload<quint16, const QHostAddress&, quint16, const QByteArray&>::of(&UDPInterface::dataReceivedOnPort),
+            this,
+            [this](quint16 localPort, const QHostAddress& senderAddress, quint16 senderPort, const QByteArray& data) {
+                if (localPort == m_necPort) {
+                    onNECDataReceived(senderAddress, senderPort, data);
+                }else if (localPort == m_interfacePort) {
+                    onInterfaceDataReceived(senderAddress, senderPort, data);
+                }
+            },
+            Qt::DirectConnection);
 
         if (!connected) {
-            Logger::instance().error("Failed to connect dataReceivedOnPort signal!");
+            Logger::instance().error("Failed to connect dataReceivedOnPort signal");
             return false;
         }
 
         connect(m_udpInterface, &UDPInterface::errorOccurred,
-                this, &MetaManage::onUDPError, Qt::DirectConnection);  // ← 改为DirectConnection
+                this, &MetaManage::onUDPError, Qt::DirectConnection);
 
-        // 等待线程启动 - 确保socket已经绑定
-        Logger::instance().info("Waiting for UDP workers to start...");
-        QThread::msleep(200);  // 给工作线程200ms来启动和绑定
+        QThread::msleep(200);
 
-        // Send initial heartbeat to NEC
-        Logger::instance().info("Sending initial heartbeat to NEC");
         sendMessageToNEC("NENetRunSuccess");
+        emitMdInSnapshotToNEC();
 
         Logger::instance().info("MetaManage UDP initialization complete");
         return true;
 
-    } catch (const std::exception& e) {
+    }catch (const std::exception& e) {
         Logger::instance().error(QString("Exception during MetaManage initialization: %1").arg(e.what()));
         return false;
     }
@@ -100,8 +88,6 @@ bool MetaManage::initialize()
 
 void MetaManage::cleanup()
 {
-    Logger::instance().info("Cleaning up MetaManage");
-
     if (m_udpInterface) {
         m_udpInterface->cleanup();
     }
@@ -114,34 +100,21 @@ void MetaManage::cleanup()
     }
 
     m_registeredClients.clear();
+    m_metaRouteById.clear();
 }
 
-void MetaManage::processHardwareEvents()
-{
-    // TODO: Process hardware events from global queue
-}
-
-void MetaManage::sendToNECClients()
-{
-    // TODO: Send messages to registered NEC clients
-}
+void MetaManage::processHardwareEvents() {}
+void MetaManage::sendToNECClients() {}
+void MetaManage::processSendQueue() {}
 
 void MetaManage::sendMessageToNEC(const QString& message)
 {
     if (!m_udpInterface) {
-        Logger::instance().warning("UDP Interface not initialized");
         return;
     }
 
     const auto& config = GlobalData::instance().getConfig();
-    QHostAddress necAddress(config.network.nec_ip);
-
-    // Send using the NEC port as source
-    Logger::instance().debug(QString("Sending to NEC (%1:%2): %3")
-                            .arg(necAddress.toString())
-                            .arg(config.network.nec_port)
-                            .arg(message));
-
+    const QHostAddress necAddress(config.network.nec_ip);
     m_udpInterface->sendBytesByPort(config.network.nenet_nec_port,
                                     necAddress,
                                     config.network.nec_port,
@@ -151,48 +124,32 @@ void MetaManage::sendMessageToNEC(const QString& message)
 void MetaManage::sendMessageToInterface(const QHostAddress& address, quint16 port, const QString& message)
 {
     if (!m_udpInterface) {
-        Logger::instance().warning("UDP Interface not initialized");
         return;
     }
 
     const auto& config = GlobalData::instance().getConfig();
     m_udpInterface->sendBytesByPort(config.network.interface_port, address, port, message.toUtf8());
-
-    Logger::instance().debug(QString("Sent message to interface %1:%2").arg(address.toString()).arg(port));
 }
 
 void MetaManage::sendMessageToQI(const QString& message)
 {
     if (!m_udpInterface) {
-        Logger::instance().warning("UDP Interface not initialized");
         return;
     }
 
     const auto& config = GlobalData::instance().getConfig();
-    QHostAddress qiAddress(config.network.qi_ip);
-
-    // Send QI message using any available port
+    const QHostAddress qiAddress(config.network.qi_ip);
     m_udpInterface->sendBytes(qiAddress, config.network.qi_port, message.toUtf8());
-
-    Logger::instance().debug(QString("Sent message to QI: %1").arg(message));
 }
 
 void MetaManage::onNECDataReceived(const QHostAddress& senderAddress, quint16 senderPort, const QByteArray& data)
 {
+    Q_UNUSED(senderAddress)
+    Q_UNUSED(senderPort)
+
     try {
-        qDebug() << "=== onNECDataReceived() called ===";
-        qDebug() << "From:" << senderAddress.toString() << ":" << senderPort;
-        qDebug() << "Data size:" << data.size();
-
-        QString messageStr = QString::fromUtf8(data);
-        qDebug() << "Message:" << messageStr;
-
-        Logger::instance().debug(QString("Received NEC data from %1:%2: %3")
-                                .arg(senderAddress.toString()).arg(senderPort).arg(messageStr));
-
-        processNECMessage(messageStr);
-
-    } catch (const std::exception& e) {
+        processNECMessage(QString::fromUtf8(data));
+    }catch (const std::exception& e) {
         Logger::instance().error(QString("Error processing NEC data: %1").arg(e.what()));
     }
 }
@@ -200,19 +157,8 @@ void MetaManage::onNECDataReceived(const QHostAddress& senderAddress, quint16 se
 void MetaManage::onInterfaceDataReceived(const QHostAddress& senderAddress, quint16 senderPort, const QByteArray& data)
 {
     try {
-        qDebug() << "=== onInterfaceDataReceived() called ===";
-        qDebug() << "From:" << senderAddress.toString() << ":" << senderPort;
-        qDebug() << "Data size:" << data.size();
-
-        QString messageStr = QString::fromUtf8(data);
-        qDebug() << "Message:" << messageStr;
-
-        Logger::instance().debug(QString("Received interface data from %1:%2: %3")
-                                .arg(senderAddress.toString()).arg(senderPort).arg(messageStr));
-
-        processInterfaceMessage(senderAddress, senderPort, messageStr);
-
-    } catch (const std::exception& e) {
+        processInterfaceMessage(senderAddress, senderPort, QString::fromUtf8(data));
+    }catch (const std::exception& e) {
         Logger::instance().error(QString("Error processing interface data: %1").arg(e.what()));
     }
 }
@@ -222,116 +168,156 @@ void MetaManage::onUDPError(const QString& errorString)
     Logger::instance().error(QString("UDP Error: %1").arg(errorString));
 }
 
-void MetaManage::processSendQueue()
-{
-    // TODO: Implement message queue processing similar to C# version
-}
-
 void MetaManage::processNECMessage(const QString& messageStr)
 {
-    qDebug() << "=== processNECMessage() called ===";
-    qDebug() << "Message string:" << messageStr;
-    qDebug() << "Message length:" << messageStr.length();
-
-    // Check for heartbeat response
     if (messageStr == "NECRunSuccess") {
-        qDebug() << "Received heartbeat response";
         if (!m_necConnected) {
             m_necConnected = true;
-            Logger::instance().info("NEC connection established");
-            // Send acknowledgement back
             sendMessageToNEC("NENetRunSuccess");
+            emitMdInSnapshotToNEC();
         }
         return;
     }
 
-    // Try to parse as JSON message
-    qDebug() << "Attempting to parse as JSON...";
-    QJsonObject msgObj = Protocol::parseJsonMessage(messageStr);
-    qDebug() << "JSON parse result - keys:" << msgObj.keys();
-
-    bool isValid = Protocol::isValidMessage(msgObj);
-    qDebug() << "Message validation result:" << isValid;
-
-    if (!isValid) {
-        qWarning() << "WARNING: Invalid NEC message format:" << messageStr;
-        Logger::instance().warning(QString("Invalid NEC message format: %1").arg(messageStr));
+    const QJsonObject msgObj = Protocol::parseJsonMessage(messageStr);
+    if (!Protocol::isValidMessage(msgObj)) {
         return;
     }
 
-    QString messageType = msgObj.value("t").toString("");
-    qDebug() << "Message type:" << messageType;
-    Logger::instance().debug(QString("Processing NEC message type: %1").arg(messageType));
-
-    // Handle different message types
-    Protocol::MessageType type = Protocol::getMessageTypeEnum(messageType);
-    qDebug() << "Message type enum value:" << static_cast<int>(type);
-
-    switch (type) {
-        case Protocol::MSG_MD_OUT:
-            // Handle metadata output (setValue from NEC)
-            qDebug() << "Processing MSG_MD_OUT";
-            Logger::instance().info("Received metadata output message");
-            break;
-
-        case Protocol::MSG_MD_IN:
-            // Handle metadata input (sensor data to NEC)
-            qDebug() << "Processing MSG_MD_IN";
-            Logger::instance().info("Received metadata input message");
-            break;
-
-        case Protocol::MSG_MD_CHANGE:
-            // Handle metadata change
-            qDebug() << "Processing MSG_MD_CHANGE";
-            Logger::instance().info("Received metadata change message");
-            break;
-
-        default:
-            qWarning() << "WARNING: Unknown NEC message type:" << messageType;
-            Logger::instance().warning(QString("Unknown NEC message type: %1").arg(messageType));
-            break;
+    const auto type = Protocol::getMessageTypeEnum(msgObj.value("t").toString());
+    if (type == Protocol::MSG_MD_CHANGE || type == Protocol::MSG_MD_IN) {
+        emitMdInSnapshotToNEC();
     }
-    qDebug() << "=== processNECMessage() completed ===";
 }
 
-void MetaManage::processInterfaceMessage(const QHostAddress& senderAddress, quint16 senderPort, const QString& messageStr)
+void MetaManage::processInterfaceMessage(const QHostAddress& senderAddress,
+                                         quint16 senderPort,
+                                         const QString& messageStr)
 {
-    // Try to parse as JSON message
-    QJsonObject msgObj = Protocol::parseJsonMessage(messageStr);
+    const QJsonObject msgObj = Protocol::parseJsonMessage(messageStr);
     if (!Protocol::isValidMessage(msgObj)) {
-        Logger::instance().warning(QString("Invalid interface message format: %1").arg(messageStr));
         return;
     }
 
-    QString messageType = msgObj.value("t").toString("");
-    Logger::instance().debug(QString("Processing interface message type: %1 from %2:%3")
-                            .arg(messageType).arg(senderAddress.toString()).arg(senderPort));
-
-    // Handle different message types
-    Protocol::MessageType type = Protocol::getMessageTypeEnum(messageType);
+    const QString messageType = msgObj.value("t").toString();
+    const auto type = Protocol::getMessageTypeEnum(messageType);
 
     switch (type) {
-        case Protocol::MSG_SET_VALUE:
-            Logger::instance().info("Received setValue message");
-            break;
+    case Protocol::MSG_SET_VALUE:
+        if (applySetValue(messageStr)) {
+            sendMessageToInterface(senderAddress, senderPort, "{\"t\":\"setValueAck\",\"ok\":1}");
+            emitMdInSnapshotToNEC();
+        }else {
+            sendMessageToInterface(senderAddress, senderPort, "{\"t\":\"setValueAck\",\"ok\":0}");
+        }
+        break;
 
-        case Protocol::MSG_ADD_REG_LISTEN:
-            Logger::instance().info("Received addRegListen message");
-            // Store client registration
-            m_registeredClients[QString("%1:%2").arg(senderAddress.toString()).arg(senderPort)] =
-                QPair<QHostAddress, quint16>(senderAddress, senderPort);
-            break;
+    case Protocol::MSG_ADD_REG_LISTEN:
+        m_registeredClients[QString("%1:%2").arg(senderAddress.toString()).arg(senderPort)] =
+            QPair<QHostAddress, quint16>(senderAddress, senderPort);
+        sendMessageToInterface(senderAddress, senderPort, "{\"t\":\"addRegListenAck\",\"ok\":1}");
+        emitMdInSnapshotToNEC();
+        break;
 
-        case Protocol::MSG_BUTTON_GRADE:
-            Logger::instance().info("Received buttonGrade message");
-            break;
+    case Protocol::MSG_BUTTON_GRADE:
+    case Protocol::MSG_END_GRADE:
+        Logger::instance().info(QString("Received interface command: %1").arg(messageType));
+        break;
 
-        case Protocol::MSG_END_GRADE:
-            Logger::instance().info("Received endGrade message");
-            break;
-
-        default:
-            Logger::instance().warning(QString("Unknown interface message type: %1").arg(messageType));
-            break;
+    default:
+        break;
     }
+}
+
+void MetaManage::rebuildMetaRouteCache()
+{
+    m_metaRouteById.clear();
+    const QList<ne_md_info>& mdList = GlobalData::instance().getMetaInfoList();
+
+    for (const auto& md : mdList) {
+        MetaRoute route;
+        route.mdId = md.pk_id;
+        route.plateType = md.plate_type_id;
+        route.controlId = md.plate_control_id;
+        route.hardAddr = md.plate_hard_addr;
+        route.tport = md.tport;
+        m_metaRouteById[md.pk_id] = route;
+    }
+}
+
+bool MetaManage::applySetValue(const QString& messageStr)
+{
+    const QJsonObject msgObj = Protocol::parseJsonMessage(messageStr);
+    const Protocol::Message msg = Protocol::parseMessage(msgObj);
+
+    if (msg.i.isEmpty()) {
+        return false;
+    }
+
+    QList<QPair<int, int>> updates;
+    bool allKnown = true;
+
+    for (const auto& meta : msg.i) {
+        if (!m_metaRouteById.contains(meta.d)) {
+            allKnown = false;
+            continue;
+        }
+        updates.append(qMakePair(meta.d, meta.v.toInt()));
+    }
+
+    if (updates.isEmpty()) {
+        return false;
+    }
+
+    if (!DBQueries::updateMetadataValues(updates)) {
+        return false;
+    }
+
+    QMap<int, JFHardControl>& jfHardDict = GlobalData::instance().getJFHardDict();
+    QList<ne_md_info>& mdList = GlobalData::instance().getMetaInfoList();
+
+    for (const auto& item : updates) {
+        const int mdId = item.first;
+        const int v = item.second;
+
+        for (auto& md : mdList) {
+            if (md.pk_id == mdId) {
+                md.current_value = v;
+                break;
+            }
+        }
+
+        const MetaRoute& route = m_metaRouteById[mdId];
+        if (route.plateType == 3 && jfHardDict.contains(route.controlId) &&
+            jfHardDict[route.controlId].allDOValue.contains(route.hardAddr) &&
+            route.tport >= 0 && route.tport < 16) {
+            jfHardDict[route.controlId].allDOValue[route.hardAddr][route.tport] = v;
+        }
+
+        if (route.plateType == 4 && jfHardDict.contains(route.controlId) &&
+            jfHardDict[route.controlId].allDIValue.contains(route.hardAddr) &&
+            route.tport >= 0 && route.tport < 16) {
+            jfHardDict[route.controlId].allDIValue[route.hardAddr][route.tport] = v;
+        }
+    }
+
+    return allKnown;
+}
+
+void MetaManage::emitMdInSnapshotToNEC()
+{
+    Protocol::Message msg;
+    msg.t = "md_in";
+
+    const QList<ne_md_info>& mdList = GlobalData::instance().getMetaInfoList();
+    for (const auto& md : mdList) {
+        Protocol::MetaInfo meta;
+        meta.d = md.pk_id;
+        meta.v = QString::number(md.current_value);
+        meta.n = 0;
+        meta.model = 0;
+        msg.i.append(meta);
+    }
+
+    sendMessageToNEC(Protocol::createJsonMessage(Protocol::messageToJson(msg)));
 }

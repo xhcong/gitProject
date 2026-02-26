@@ -1,6 +1,7 @@
 #include "jf_plate.h"
 
-JFPlate::JFPlate(QObject* parent) : QObject(parent)
+JFPlate::JFPlate(QObject* parent)
+    : QObject(parent)
 {
 }
 

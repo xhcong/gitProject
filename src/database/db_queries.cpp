@@ -3,6 +3,7 @@
 #include "../logging/logger.h"
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QSqlDriver>
 #include <QVariant>
 
 bool DBQueries::selectAllPlates(QList<ne_plate>& plates)
@@ -98,21 +99,52 @@ bool DBQueries::selectAllFlowInfo(QList<ne_flow_info>& flowInfo)
 
 bool DBQueries::updateMetadataValue(int metadataId, int value)
 {
+    return updateMetadataValues({qMakePair(metadataId, value)});
+}
+
+bool DBQueries::updateMetadataValues(const QList<QPair<int, int>>& updates)
+{
+    if (updates.isEmpty()) {
+        return true;
+    }
+
     QSqlDatabase db = DBConnection::instance().getConnection();
     if (!db.isOpen()) {
         Logger::instance().error("Database not connected");
         return false;
     }
 
-    QSqlQuery query(db);
-    query.prepare("UPDATE ne_md_info SET current_value = ? WHERE pk_id = ?");
-    query.addBindValue(value);
-    query.addBindValue(metadataId);
-
-    if (!query.exec()) {
-        Logger::instance().error(QString("Update failed: %1").arg(query.lastError().text()));
-        return false;
+    const bool hasTx = db.driver() && db.driver()->hasFeature(QSqlDriver::Transactions);
+    if (hasTx) {
+        db.transaction();
     }
 
-    return true;
+    bool allOk = true;
+    for (const auto& item : updates) {
+        const int metadataId = item.first;
+        const int value = item.second;
+
+        QSqlQuery query(db);
+        query.prepare("UPDATE ne_md_info SET current_value = ? WHERE pk_id = ?");
+        query.addBindValue(value);
+        query.addBindValue(metadataId);
+
+        if (!query.exec()) {
+            Logger::instance().error(QString("Update failed for md=%1: %2")
+                                         .arg(metadataId)
+                                         .arg(query.lastError().text()));
+            allOk = false;
+            break;
+        }
+    }
+
+    if (hasTx) {
+        if (allOk) {
+            db.commit();
+        }else {
+            db.rollback();
+        }
+    }
+
+    return allOk;
 }

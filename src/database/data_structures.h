@@ -4,6 +4,7 @@
 #include <QString>
 #include <QList>
 #include <QMap>
+#include <QVector>
 #include <vector>
 
 /**
@@ -14,11 +15,21 @@ struct ne_plate
     int pk_id = 0;
     QString sn;
     QString plate_type;
+
+    // legacy-compatible fields
+    int plate_type_id = 0;
+    int plate_parent_id = 0;
+    QString station_name;
+    QString ip_addr;
+    int ip_port = 0;
+    QString login_name;
+    QString login_password;
+    int hard_addr = 0;
+
     QString ip;
     int port = 0;
     int timeout = 5000;
     int retry = 3;
-    // Add other fields as needed
 };
 
 /**
@@ -28,6 +39,14 @@ struct ne_md_info
 {
     int pk_id = 0;
     int plate_id = 0;
+
+    // legacy-compatible fields
+    int plate_type_id = 0;
+    int plate_control_id = 0;
+    int plate_hard_addr = 0;
+    int tport = 0;
+    int init_value = 0;
+
     QString md_name;
     QString md_type;
     QString md_unit;
@@ -35,7 +54,6 @@ struct ne_md_info
     int max_value = 0;
     int current_value = 0;
     int status = 0;  // 0: normal, 1: alarm, etc.
-    // Add other fields as needed
 };
 
 /**
@@ -47,7 +65,6 @@ struct ne_flow_info
     QString flow_name;
     QString flow_type;
     int plate_id = 0;
-    // Add other fields as needed
 };
 
 /**
@@ -55,11 +72,27 @@ struct ne_flow_info
  */
 struct JFHardControl
 {
+    // legacy-compatible fields used by startup migration logic
+    int pk_id = 0;
+    QString station_name;
+    QString ip_addr;
+    int ip_port = 0;
+    int plantType = 0;
+    QString login_name;
+    QString login_password;
+
+    // key: hard_addr, value: 16 channel map/value
+    QMap<int, QVector<int>> allDIIdMap;
+    QMap<int, QVector<int>> allDOIdMap;
+    QMap<int, QVector<int>> allDIValue;
+    QMap<int, QVector<int>> allDOValue;
+    QMap<int, QVector<int>> allMNdMap;
+
+    // existing fields kept for compatibility
     int board_id = 0;
     QString board_sn;
     QList<ne_plate> plates;
     QMap<int, ne_md_info> metadata_map;
-    // Add other fields as needed
 };
 
 /**

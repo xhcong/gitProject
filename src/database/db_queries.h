@@ -31,6 +31,11 @@ public:
      */
     static bool updateMetadataValue(int metadataId, int value);
 
+    /**
+     * @brief Batch update metadata values in database
+     */
+    static bool updateMetadataValues(const QList<QPair<int, int>>& updates);
+
 private:
     DBQueries() = delete;
 };

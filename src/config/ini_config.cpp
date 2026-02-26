@@ -14,7 +14,7 @@ bool IniConfig::loadConfig(const QString& filePath, IniConfigInfo& config)
     // Load DATABASE section
     settings.beginGroup("DATABASE");
     config.database.type = settings.value("Type", "sqlite").toString();
-    config.database.path = settings.value("Path", "nenet.db").toString();
+    config.database.path = settings.value("Path", "nengine.db").toString();
     settings.endGroup();
 
     // Load MYSQL section
@@ -44,12 +44,26 @@ bool IniConfig::loadConfig(const QString& filePath, IniConfigInfo& config)
     config.network.qi_ip = settings.value("QI_IP", "127.0.0.1").toString();
     config.network.qi_port = settings.value("QI_Port", 0).toInt();
 
-    // UDP communication settings (compatible with C# version)
-    config.network.nenet_ip = settings.value("NENet_IP", "127.0.0.1").toString();
-    config.network.nenet_ex_ip = settings.value("NENetEx_IP", "127.0.0.1").toString();
-    config.network.nenet_nec_port = settings.value("NENet_NEC_Port", 6001).toInt();
-    config.network.interface_port = settings.value("Interface_Port", 7000).toInt();
+    // UDP communication settings in [IP]
+    config.network.nenet_ip = settings.value("NENet_IP", settings.value("NENet_ip", "127.0.0.1")).toString();
+    config.network.nenet_nec_port = settings.value("NENet_NEC_Port", settings.value("NENet_NEC_port", 6001)).toInt();
     settings.endGroup();
+
+    // Legacy-compatible settings in [NENetIP]
+    settings.beginGroup("NENetIP");
+    config.network.nenet_ex_ip = settings.value("NENetEx_IP", settings.value("NENetEx_ip", "127.0.0.1")).toString();
+    config.network.interface_port = settings.value("Interface_Port", settings.value("interface_port", 7000)).toInt();
+    settings.endGroup();
+
+    // Fallback: if [NENetIP] missing, try [IP]
+    if (config.network.nenet_ex_ip.isEmpty() || config.network.interface_port == 7000) {
+        settings.beginGroup("IP");
+        if (config.network.nenet_ex_ip.isEmpty()) {
+            config.network.nenet_ex_ip = settings.value("NENetEx_IP", settings.value("NENetEx_ip", "127.0.0.1")).toString();
+        }
+        config.network.interface_port = settings.value("Interface_Port", settings.value("interface_port", config.network.interface_port)).toInt();
+        settings.endGroup();
+    }
 
     // Load HardIO section
     settings.beginGroup("HardIO");
