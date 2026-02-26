@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake --build:*)",
+      "Bash(/tmp/final_report.md:*)",
+      "Bash(/tmp/verification_guide.txt:*)",
+      "Bash(/tmp/final_fix_summary.txt:*)",
+      "Bash(/tmp/complete_fix_report.txt:*)",
+      "Bash(ls:*)",
+      "Bash(/c/Qt/Tools/CMake_64/bin/cmake.exe:*)",
+      "Bash(timeout:*)",
+      "Bash(/tmp/test_udp.sh:*)",
+      "Bash(chmod:*)",
+      "Bash(for file in \"src/main.cpp\" \"src/logging/logger.cpp\" \"src/core/global_data.cpp\" \"src/core/startup.cpp\")",
+      "Bash(do)",
+      "Bash(if [ -f \"C:\\\\Users\\\\administer\\\\Desktop\\\\nenet\\\\nem\\\\NENET_Qt5/$file\" ])",
+      "Bash(then)",
+      "Bash(echo:*)",
+      "Bash(else)",
+      "Bash(fi)",
+      "Bash(done)",
+      "Bash(for file in \"src/core/meta_manage.cpp\" \"src/config/ini_config.cpp\" \"src/database/db_connection.cpp\" \"src/database/db_queries.cpp\" \"src/hardware/can_interface.cpp\" \"src/hardware/jf_plate.cpp\" \"src/hardware/qj_custom.cpp\" \"src/network/udp_interface.cpp\" \"src/network/udp_worker.cpp\" \"src/network/nec_interface.cpp\" \"src/network/protocol.cpp\" \"src/utils/string_utils.cpp\" \"src/utils/convert_utils.cpp\")",
+      "Bash(mingw32-make:*)",
+      "Bash(__NEW_LINE_1ba6efc08e8c86ea__ echo \"=== Checking platforms directory ===\")",
+      "Bash(__NEW_LINE_1ba6efc08e8c86ea__ echo \"\")",
+      "Bash(\"C:\\\\Users\\\\administer\\\\Desktop\\\\nenet\\\\nem\\\\0.Bin\\\\README.txt\":*)",
+      "Bash(__NEW_LINE_0c28296d5ea27a23__ echo \"\")",
+      "Bash(du -sh \"C:\\\\Users\\\\administer\\\\Desktop\\\\nenet\\\\nem\\\\0.Bin\\\\Qt5\"*\".dll\")",
+      "Bash(__NEW_LINE_bec03996b98c25bc__ echo \"\")",
+      "Bash(__NEW_LINE_c4c444ce7126efe7__ echo \"\")",
+      "Bash(__NEW_LINE_ded67dc7dff96fe9__ echo \"\")",
+      "Bash(__NEW_LINE_251274fac612a96a__ ls \"C:\\\\Users\\\\administer\\\\Desktop\\\\nenet\\\\nem\\\\0.Bin\\\\run.bat\")"
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+# Build directories
+build/
+cmake-build-*/
+bin/
+lib/
+
+# Qt specific
+*.o
+*.moc.cpp
+*.qrc.cpp
+*.autogen/
+moc_*.cpp
+rcc_*.cpp
+ui_*.h
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Qt Creator
+*.user
+*.creator.*
+
+# Windows
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.ilk
+*.exp
+
+# macOS
+.DS_Store
+*.dSYM/
+
+# Linux
+*.so
+*.a
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+
+# Database and logs
+*.db
+*.sqlite
+logs/
+*.log
+
+# Configuration backups
+*.ini.bak
+*.ini.backup
+
+# Generated files
+/bin/
+/obj/
