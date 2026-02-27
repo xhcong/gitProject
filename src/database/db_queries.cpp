@@ -4,6 +4,7 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QSqlDriver>
+#include <QSqlRecord>
 #include <QVariant>
 
 bool DBQueries::selectAllPlates(QList<ne_plate>& plates)
@@ -62,6 +63,13 @@ bool DBQueries::selectAllMetaInfo(QList<ne_md_info>& metaInfo)
         md.min_value = query.value("min_value").toInt();
         md.max_value = query.value("max_value").toInt();
         md.current_value = query.value("current_value").toInt();
+
+        if (query.record().indexOf("curValue_str") >= 0) {
+            md.current_value_str = query.value("curValue_str").toString();
+        } else if (query.record().indexOf("current_value_str") >= 0) {
+            md.current_value_str = query.value("current_value_str").toString();
+        }
+
         metaInfo.append(md);
     }
 
@@ -141,7 +149,7 @@ bool DBQueries::updateMetadataValues(const QList<QPair<int, int>>& updates)
     if (hasTx) {
         if (allOk) {
             db.commit();
-        }else {
+        } else {
             db.rollback();
         }
     }

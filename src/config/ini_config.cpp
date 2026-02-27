@@ -50,18 +50,33 @@ bool IniConfig::loadConfig(const QString& filePath, IniConfigInfo& config)
     settings.endGroup();
 
     // Legacy-compatible settings in [NENetIP]
+    bool interfacePortFromNENetIP = false;
     settings.beginGroup("NENetIP");
     config.network.nenet_ex_ip = settings.value("NENetEx_IP", settings.value("NENetEx_ip", "127.0.0.1")).toString();
-    config.network.interface_port = settings.value("Interface_Port", settings.value("interface_port", 7000)).toInt();
+    if (settings.contains("Interface_Port")) {
+        config.network.interface_port = settings.value("Interface_Port").toInt();
+        interfacePortFromNENetIP = true;
+    } else if (settings.contains("interface_port")) {
+        config.network.interface_port = settings.value("interface_port").toInt();
+        interfacePortFromNENetIP = true;
+    } else {
+        config.network.interface_port = 7000;
+    }
     settings.endGroup();
 
     // Fallback: if [NENetIP] missing, try [IP]
-    if (config.network.nenet_ex_ip.isEmpty() || config.network.interface_port == 7000) {
+    if (config.network.nenet_ex_ip.isEmpty() || !interfacePortFromNENetIP) {
         settings.beginGroup("IP");
         if (config.network.nenet_ex_ip.isEmpty()) {
             config.network.nenet_ex_ip = settings.value("NENetEx_IP", settings.value("NENetEx_ip", "127.0.0.1")).toString();
         }
-        config.network.interface_port = settings.value("Interface_Port", settings.value("interface_port", config.network.interface_port)).toInt();
+        if (!interfacePortFromNENetIP) {
+            if (settings.contains("Interface_Port")) {
+                config.network.interface_port = settings.value("Interface_Port").toInt();
+            } else if (settings.contains("interface_port")) {
+                config.network.interface_port = settings.value("interface_port").toInt();
+            }
+        }
         settings.endGroup();
     }
 

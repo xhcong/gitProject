@@ -20,7 +20,7 @@ find_package(Qt5 COMPONENTS
     REQUIRED
 )
 
-# Source files - Only .cpp files needed (headers auto-processed by MOC)
+# Source files
 set(PROJECT_SOURCES
     src/main.cpp
     src/logging/logger.cpp
@@ -41,8 +41,33 @@ set(PROJECT_SOURCES
     src/utils/convert_utils.cpp
 )
 
+# Header files (added for IDE/project visibility and explicit moc tracking)
+set(PROJECT_HEADERS
+    src/singleton_manager.h
+    src/logging/logger.h
+    src/core/global_data.h
+    src/core/startup.h
+    src/core/meta_manage.h
+    src/config/config_info.h
+    src/config/ini_config.h
+    src/database/data_structures.h
+    src/database/db_connection.h
+    src/database/db_queries.h
+    src/hardware/hardware_control.h
+    src/hardware/can_interface.h
+    src/hardware/jf_plate.h
+    src/hardware/jf_plate_fwd.h
+    src/hardware/qj_custom.h
+    src/network/udp_interface.h
+    src/network/udp_worker.h
+    src/network/nec_interface.h
+    src/network/protocol.h
+    src/utils/string_utils.h
+    src/utils/convert_utils.h
+)
+
 # Create executable
-add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
+add_executable(${PROJECT_NAME} ${PROJECT_SOURCES} ${PROJECT_HEADERS})
 
 # Link Qt5 libraries
 target_link_libraries(${PROJECT_NAME}

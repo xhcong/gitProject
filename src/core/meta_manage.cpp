@@ -58,7 +58,7 @@ bool MetaManage::initialize()
             [this](quint16 localPort, const QHostAddress& senderAddress, quint16 senderPort, const QByteArray& data) {
                 if (localPort == m_necPort) {
                     onNECDataReceived(senderAddress, senderPort, data);
-                }else if (localPort == m_interfacePort) {
+                } else if (localPort == m_interfacePort) {
                     onInterfaceDataReceived(senderAddress, senderPort, data);
                 }
             },
@@ -80,7 +80,7 @@ bool MetaManage::initialize()
         Logger::instance().info("MetaManage UDP initialization complete");
         return true;
 
-    }catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         Logger::instance().error(QString("Exception during MetaManage initialization: %1").arg(e.what()));
         return false;
     }
@@ -149,7 +149,7 @@ void MetaManage::onNECDataReceived(const QHostAddress& senderAddress, quint16 se
 
     try {
         processNECMessage(QString::fromUtf8(data));
-    }catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         Logger::instance().error(QString("Error processing NEC data: %1").arg(e.what()));
     }
 }
@@ -158,7 +158,7 @@ void MetaManage::onInterfaceDataReceived(const QHostAddress& senderAddress, quin
 {
     try {
         processInterfaceMessage(senderAddress, senderPort, QString::fromUtf8(data));
-    }catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         Logger::instance().error(QString("Error processing interface data: %1").arg(e.what()));
     }
 }
@@ -185,6 +185,11 @@ void MetaManage::processNECMessage(const QString& messageStr)
     }
 
     const auto type = Protocol::getMessageTypeEnum(msgObj.value("t").toString());
+
+    // Legacy behavior from C# project:
+    // when receiving NEC messages, trigger hardware DO commands.
+    triggerLegacyNecHardwareDO();
+
     if (type == Protocol::MSG_MD_CHANGE || type == Protocol::MSG_MD_IN) {
         emitMdInSnapshotToNEC();
     }
@@ -207,7 +212,7 @@ void MetaManage::processInterfaceMessage(const QHostAddress& senderAddress,
         if (applySetValue(messageStr)) {
             sendMessageToInterface(senderAddress, senderPort, "{\"t\":\"setValueAck\",\"ok\":1}");
             emitMdInSnapshotToNEC();
-        }else {
+        } else {
             sendMessageToInterface(senderAddress, senderPort, "{\"t\":\"setValueAck\",\"ok\":0}");
         }
         break;
@@ -320,4 +325,34 @@ void MetaManage::emitMdInSnapshotToNEC()
     }
 
     sendMessageToNEC(Protocol::createJsonMessage(Protocol::messageToJson(msg)));
+}
+
+void MetaManage::triggerLegacyNecHardwareDO()
+{
+    // 当前阶段先基于控制器数量即时触发，等后续接入真实 JFPlate 实例池。
+    QMap<int, JFHardControl>& jfHardDict = GlobalData::instance().getJFHardDict();
+
+    int okCount = 0;
+    int failCount = 0;
+
+    for (auto it = jfHardDict.begin(); it != jfHardDict.end(); ++it) {
+        Q_UNUSED(it)
+
+        JFPlate eachJfP;
+        eachJfP.initialize();
+
+        const bool ok1 = eachJfP.setEachDO(true, 0, 0);
+        const bool ok2 = eachJfP.setSlaveEachDO(true, 0, 0);
+
+        if (ok1 && ok2) {
+            ++okCount;
+        } else {
+            ++failCount;
+        }
+    }
+
+    Logger::instance().info(QString("triggerLegacyNecHardwareDO executed, controllers=%1, ok=%2, fail=%3")
+                                .arg(jfHardDict.size())
+                                .arg(okCount)
+                                .arg(failCount));
 }

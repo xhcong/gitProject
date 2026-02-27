@@ -46,6 +46,8 @@ struct ne_md_info
     int plate_hard_addr = 0;
     int tport = 0;
     int init_value = 0;
+    int kind_id = 0;                 // 1: DO, 2: analog/display, 3: string
+    QString current_value_str;       // for kind_id == 3
 
     QString md_name;
     QString md_type;
